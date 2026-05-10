@@ -4,9 +4,11 @@ from PIL import Image
 import easyocr
 import numpy as np
 import re
+import gc # Garbage Collector για να μην κρασάρει
+import time
 
-st.set_page_config(page_title="Last War 100-Member Analyzer", layout="wide")
-st.title("🛡️ Last War Alliance Intelligence (Full 100 Support)")
+st.set_page_config(page_title="Last War Multi-Analyzer", layout="wide")
+st.title("🛡️ Last War Alliance Intelligence (100 Members Support)")
 
 @st.cache_resource
 def load_model():
@@ -14,73 +16,85 @@ def load_model():
 
 reader = load_model()
 
-uploaded_files = st.file_uploader("Ανέβασε τα screenshots (κατά προτίμηση με τη σειρά)", 
+# Η ΡΥΘΜΙΣΗ ΓΙΑ ΠΟΛΛΕΣ ΦΩΤΟ ΕΙΝΑΙ ΕΔΩ (accept_multiple_files=True)
+uploaded_files = st.file_uploader("Επίλεξε όλα τα screenshots (13+)", 
                                   type=['png', 'jpg', 'jpeg'], 
                                   accept_multiple_files=True)
 
 if uploaded_files:
-    if st.button('Έναρξη Πλήρους Ανάλυσης'):
+    st.info(f"✅ Φορτώθηκαν {len(uploaded_files)} αρχεία.")
+    
+    if st.button('Έναρξη Ανάλυσης'):
         final_data = []
         seen_players = set()
         
+        # Δείκτες Προόδου
         progress_bar = st.progress(0)
+        status_text = st.empty()
         
         for i, uploaded_file in enumerate(uploaded_files):
-            img = Image.open(uploaded_file)
-            img_array = np.array(img)
-            # Αυξάνουμε το contrast εσωτερικά για να διαβάζει καλύτερα τα R
-            results = reader.readtext(img_array, paragraph=False)
+            # Ενημέρωση μπάρας προόδου
+            percent = (i + 1) / len(uploaded_files)
+            progress_bar.progress(percent)
+            status_text.markdown(f"**Επεξεργασία:** {i+1} / {len(uploaded_files)} | `{uploaded_file.name}`")
             
-            temp_name = None
-            temp_r_level = "R?"
-            
-            for (bbox, text, prob) in results:
-                txt = text.strip()
+            try:
+                img = Image.open(uploaded_file)
+                img_array = np.array(img)
+                results = reader.readtext(img_array)
                 
-                # 1. Βελτιωμένο R-Detection (πιάνει R1, R2, R3, R4, R5 ακόμα και μέσα σε λέξεις)
-                r_match = re.search(r'R[1-5]', txt.upper())
-                if r_match:
-                    temp_r_level = r_match.group()
+                temp_name = None
+                temp_r_level = "R?"
                 
-                # 2. Καθαρισμός ονόματος (αφαιρούμε σύμβολα που μπερδεύουν το AI)
-                clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', txt)
-                
-                # 3. Ανίχνευση Power (οποιοσδήποτε αριθμός > 100.000)
-                num_only = re.sub(r'[^0-9]', '', txt)
-                
-                if num_only.isdigit() and int(num_only) > 100000:
-                    power_val = int(num_only)
-                    # Αν έχουμε όνομα, το "παντρεύουμε" με το Power
-                    if temp_name and temp_name not in seen_players:
-                        final_data.append({
-                            "Player": temp_name,
-                            "Rank": temp_r_level,
-                            "Power": power_val
-                        })
-                        seen_players.add(temp_name)
-                        temp_name = None
-                        temp_r_level = "R?"
-                else:
-                    # Αν δεν είναι αριθμός, Power ή λέξη-μενού, είναι όνομα
-                    ignore = ['power', 'kills', 'donation', 'ranking', 'commander', 'back', 'total']
-                    if len(clean_name) > 2 and clean_name.lower() not in ignore and not r_match:
-                        temp_name = clean_name
+                for (bbox, text, prob) in results:
+                    txt = text.strip()
+                    
+                    # Ανίχνευση R1-R5
+                    r_match = re.search(r'R[1-5]', txt.upper())
+                    if r_match:
+                        temp_r_level = r_match.group()
+                    
+                    # Ανίχνευση Power
+                    num_only = re.sub(r'[^0-9]', '', txt)
+                    if num_only.isdigit() and int(num_only) > 100000:
+                        p_val = int(num_only)
+                        if temp_name and temp_name not in seen_players:
+                            final_data.append({
+                                "Player": temp_name,
+                                "Rank": temp_r_level,
+                                "Power": p_val
+                            })
+                            seen_players.add(temp_name)
+                            temp_name = None
+                            temp_r_level = "R?"
+                    else:
+                        # Φιλτράρισμα ονόματος
+                        ignore = ['power', 'kills', 'donation', 'ranking', 'commander', 'back', 'total', 'alliance']
+                        if len(txt) > 2 and txt.lower() not in ignore and not r_match:
+                            temp_name = txt
 
-            progress_bar.progress((i + 1) / len(uploaded_files))
+                # ΚΑΘΑΡΙΣΜΟΣ ΜΝΗΜΗΣ ΜΕΤΑ ΑΠΟ ΚΑΘΕ ΦΩΤΟΓΡΑΦΙΑ
+                del img
+                del img_array
+                gc.collect()
+
+            except Exception as e:
+                st.error(f"Σφάλμα στο αρχείο {uploaded_file.name}: {e}")
+
+        status_text.empty()
 
         if final_data:
             df = pd.DataFrame(final_data)
-            # Ταξινόμηση αυτόματη από το μεγαλύτερο Power στο μικρότερο
             df = df.sort_values(by="Power", ascending=False).reset_index(drop=True)
-            df.index += 1 # Position 1, 2, 3...
+            df.index += 1
             
-            st.success(f"✅ Βρέθηκαν {len(df)} παίκτες!")
+            st.success(f"✅ Η ανάλυση ολοκληρώθηκε! Βρέθηκαν {len(df)} παίκτες.")
             st.dataframe(df, use_container_width=True)
             
             csv = df.to_csv(index=True).encode('utf-8')
-            st.download_button("📥 Download Excel File", data=csv, file_name="alliance_full_100.csv")
+            st.download_button("📥 Κατέβασμα Αρχείου Excel", data=csv, file_name="alliance_report.csv")
         else:
-            st.error("Δεν βρέθηκαν παίκτες. Δοκίμασε πιο καθαρά screenshots.")
+            st.warning("Δεν βρέθηκαν δεδομένα.")
 
 st.divider()
-st.info("💡 **Για να πιάσεις και τους 100:**\n1. Βγάζε screenshots που να αλληλοκαλύπτονται λίγο (να φαίνεται ο τελευταίος παίκτης της προηγούμενης φωτό).\n2. Μην κουνάς την οθόνη την ώρα που βγάζεις screenshot.")
+st.caption("v2.4 | Multi-Image Stability Enabled")
