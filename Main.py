@@ -5,40 +5,44 @@ import easyocr
 import numpy as np
 
 # Ρύθμιση Σελίδας
-st.set_page_config(page_title="Last War Alliance Analyzer", layout="wide")
-st.title("🛡️ Last War Alliance Intelligence Unit")
+st.set_page_config(page_title="Last War Analyzer", layout="centered")
+st.title("🛡️ Last War Alliance Intelligence")
 
-# Φόρτωση του AI μοντέλου (EasyOCR)
+# Φόρτωση του AI - Πιο ελαφριά έκδοση
 @st.cache_resource
 def load_model():
-    return easyocr.Reader(['en'])
+    # Το gpu=False βοηθάει να μην κρασάρει ο server
+    return easyocr.Reader(['en'], gpu=False)
 
-reader = load_model()
+try:
+    reader = load_model()
+except Exception as e:
+    st.error("Το AI μοντέλο δυσκολεύεται να φορτώσει. Δοκίμασε πάλι σε λίγο.")
 
-# Menu στο πλάι
-st.sidebar.header("Ρυθμίσεις Αξιολόγησης")
-min_power = st.sidebar.number_input("Ελάχιστο Power Growth", value=1000000)
-
-# Κύριο μέρος: Ανέβασμα Εικόνας
-uploaded_file = st.file_uploader("Ανέβασε screenshot από το παιχνίδι", type=['png', 'jpg', 'jpeg'])
+# Ανέβασμα Εικόνας
+uploaded_file = st.file_uploader("Ανέβασε screenshot (Power/Kills)", type=['png', 'jpg', 'jpeg'])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption='Το Screenshot σου', use_column_width=True)
+    st.image(image, caption='Screenshot', use_container_width=True)
     
-    with st.spinner('Το AI αναλύει τα δεδομένα...'):
-        # Μετατροπή εικόνας για το OCR
-        img_array = np.array(image)
-        results = reader.readtext(img_array)
-        
-        # Εδώ το AI "καθαρίζει" τα κείμενα
-        detected_data = [res[1] for res in results]
-        
-        # Εμφάνιση αποτελεσμάτων σε πίνακα
-        df = pd.DataFrame(detected_data, columns=['Στοιχεία που βρέθηκαν'])
-        st.success("Η ανάλυση ολοκληρώθηκε!")
-        st.dataframe(df)
+    if st.button('Έναρξη Ανάλυσης'):
+        with st.spinner('Παρακαλώ περιμένετε, το AI διαβάζει τα στοιχεία...'):
+            try:
+                img_array = np.array(image)
+                # Ανάλυση
+                results = reader.readtext(img_array)
+                
+                # Καθαρισμός δεδομένων
+                data_found = [res[1] for res in results]
+                
+                if data_found:
+                    df = pd.DataFrame(data_found, columns=['Στοιχεία'])
+                    st.success("Η ανάλυση ολοκληρώθηκε!")
+                    st.table(df) # Το table είναι πιο ελαφρύ από το dataframe
+                else:
+                    st.warning("Δεν βρέθηκε κείμενο. Δοκίμασε πιο καθαρό screenshot.")
+            except Exception as e:
+                st.error(f"Παρουσιάστηκε σφάλμα: {e}")
 
-        # Κουμπί για κατέβασμα σε Excel
-        st.download_button("Κατέβασμα σε Excel", data=df.to_csv(), file_name="alliance_stats.csv")
-      
+st.info("Σημείωση: Η πρώτη ανάλυση μπορεί να καθυστερήσει λίγο.")
