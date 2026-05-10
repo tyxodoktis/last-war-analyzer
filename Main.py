@@ -3,10 +3,9 @@ import pandas as pd
 from PIL import Image
 import easyocr
 import numpy as np
-import re
 
-st.set_page_config(page_title="Last War Pro Analyzer", layout="wide")
-st.title("🛡️ Last War Alliance Intelligence Unit")
+st.set_page_config(page_title="Last War Smart Analyzer", layout="wide")
+st.title("🛡️ Last War Alliance Intelligence")
 
 @st.cache_resource
 def load_model():
@@ -14,43 +13,48 @@ def load_model():
 
 reader = load_model()
 
-uploaded_files = st.file_uploader("Ανέβασε τα screenshots της συμμαχίας", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Ανέβασε screenshots", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
 if uploaded_files:
-    all_extracted_data = []
-    
-    if st.button('Έναρξη Ανάλυσης όλων των εικόνων'):
+    if st.button('Επεξεργασία & Ταξινόμηση'):
+        final_list = []
+        
         for uploaded_file in uploaded_files:
-            with st.status(f"Ανάλυση εικόνας: {uploaded_file.name}...", expanded=False):
-                img = Image.open(uploaded_file)
-                img_array = np.array(img)
-                results = reader.readtext(img_array)
+            img = Image.open(uploaded_file)
+            img_array = np.array(img)
+            results = reader.readtext(img_array)
+            
+            # Φιλτράρουμε τα "άχρηστα" (Power, Kills, Ranking κλπ)
+            garbage_words = ['power', 'kills', 'donation', 'ranking', 'commander', 'strength', 'back']
+            
+            current_player = None
+            
+            for (bbox, text, prob) in results:
+                txt = text.strip()
+                low_txt = txt.lower()
                 
-                for (bbox, text, prob) in results:
-                    # Φιλτράρισμα: Κράτα μόνο ονόματα και νούμερα Power
-                    # Ψάχνουμε για κείμενο που έχει πάνω από 3 χαρακτήρες 
-                    # ή νούμερα που μοιάζουν με Power (π.χ. 15.5M)
-                    clean_text = text.strip()
-                    if len(clean_text) > 2:
-                        all_extracted_data.append({
-                            "Αρχείο": uploaded_file.name,
-                            "Δεδομένο": clean_text,
-                            "Πιθανότητα": f"{round(prob*100)}%"
-                        })
+                # Αγνοούμε τις λέξεις-μενού
+                if any(word in low_txt for word in garbage_words) or len(txt) < 2:
+                    continue
+                
+                # Αν είναι καθαρός αριθμός (πάνω από 1 εκατομμύριο), είναι το Power
+                if txt.isdigit() and int(txt) > 100000:
+                    if current_player:
+                        final_list.append({"Player": current_player, "Stats": txt})
+                        current_player = None
+                else:
+                    # Αν δεν είναι αριθμός, λογικά είναι όνομα
+                    current_player = txt
 
-        # Εμφάνιση αποτελεσμάτων
-        if all_extracted_data:
-            df = pd.DataFrame(all_extracted_data)
-            st.success("Η ανάλυση ολοκληρώθηκε!")
+        if final_list:
+            df = pd.DataFrame(final_list)
+            st.success("Βρέθηκαν οι παρακάτω παίκτες!")
+            st.table(df) # Εμφάνιση καθαρού πίνακα
             
-            # Διαχωρισμός σε "Πιθανά Ονόματα" και "Πιθανά Power"
-            st.subheader("Συγκεντρωτικά Στοιχεία")
-            st.dataframe(df, use_container_width=True)
-            
-            # Κουμπί για Excel
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("Κατέβασμα Λίστας για Excel", data=csv, file_name="last_war_data.csv", mime='text/csv')
+            st.download_button("Download Excel Ready File", data=csv, file_name="alliance_eval.csv")
         else:
-            st.error("Δεν μπορέσαμε να διαβάσουμε καθαρά στοιχεία. Δοκίμασε πιο κοντινά screenshots.")
+            st.warning("Δεν μπορέσαμε να ταιριάξουμε ονόματα με νούμερα. Δοκίμασε πιο καθαρά screenshots.")
 
-st.info("💡 Tip: Για καλύτερα αποτελέσματα, βγάζε screenshots όπου η λίστα των παικτών φαίνεται καθαρά και δεν είναι ανοιχτό το chat.")
+st.divider()
+st.info("💡 **Πώς να βοηθήσεις το AI:** Προσπάθησε στα screenshots να μην φαίνονται τα κουμπιά του κινητού ή το chat, γιατί μπερδεύουν την ανάγνωση.")
