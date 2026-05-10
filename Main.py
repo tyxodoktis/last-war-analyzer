@@ -20,7 +20,15 @@ except Exception as e:
     st.error("Το AI μοντέλο δυσκολεύεται να φορτώσει. Δοκίμασε πάλι σε λίγο.")
 
 # Ανέβασμα Εικόνας
-uploaded_file = st.file_uploader("Ανέβασε screenshot (Power/Kills)", type=['png', 'jpg', 'jpeg'])
+uploaded_files = st.file_uploader("Ανέβασε screenshots (Power/Kills)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        image = Image.open(uploaded_file)
+        st.image(image, caption=f'Screenshot: {uploaded_file.name}', use_container_width=True)
+        
+        # Το υπόλοιπο κομμάτι του κώδικα για την ανάλυση θα μπει εδώ μέσα...
+
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
